@@ -1,0 +1,23 @@
+name = "topgames-slash"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# 06:20 UTC == 09:20 Europe/Istanbul (no DST there, so this stays correct).
+[triggers]
+crons = ["20 6 * * *"]
+
+[vars]
+GITHUB_REPO = "alkanaks56/top-games"
+GITHUB_WORKFLOW = "update.yml"
+GITHUB_REF = "main"
+
+# Your GitHub Pages URL, e.g. https://<user>.github.io/<repo>
+PAGES_BASE = "https://alkanaks56.github.io/top-games"
+
+# Reachable charts, primary first. Only these can be requested; the fetch URL is
+# built from the matched entry, never from user input.
+DATASETS = "us/games,us/action,us/adventure,us/board,us/card,us/casino,us/casual,us/family,us/music,us/puzzle,us/racing,us/role_playing,us/simulation,us/sports,us/strategy,us/trivia,us/word,gb/games,gb/action,gb/adventure,gb/board,gb/card,gb/casino,gb/casual,gb/family,gb/music,gb/puzzle,gb/racing,gb/role_playing,gb/simulation,gb/sports,gb/strategy,gb/trivia,gb/word,de/games,de/action,de/adventure,de/board,de/card,de/casino,de/casual,de/family,de/music,de/puzzle,de/racing,de/role_playing,de/simulation,de/sports,de/strategy,de/trivia,de/word,tr/games,tr/action,tr/adventure,tr/board,tr/card,tr/casino,tr/casual,tr/family,tr/music,tr/puzzle,tr/racing,tr/role_playing,tr/simulation,tr/sports,tr/strategy,tr/trivia,tr/word,br/games,br/action,br/adventure,br/board,br/card,br/casino,br/casual,br/family,br/music,br/puzzle,br/racing,br/role_playing,br/simulation,br/sports,br/strategy,br/trivia,br/word"
+
+# Secrets (never in this file):
+#   wrangler secret put SLACK_SIGNING_SECRET   -- verifies /slack/command
+#   wrangler secret put SLACK_WEBHOOK_URL      -- used by /share

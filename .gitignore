@@ -1,0 +1,9 @@
+config.json
+data/*
+!data/topgames.db
+site/
+__pycache__/
+*.pyc
+*.log
+worker/node_modules/
+data/*.view.json

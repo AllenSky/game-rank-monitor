@@ -1,0 +1,63 @@
+{
+  "country": "us",
+  "genre": "puzzle",
+  "chart": "topfreeapplications",
+  "chart_size": 100,
+  "slack": {
+    "webhook_url": "",
+    "username": "Top Games Bot",
+    "icon_emoji": ":jigsaw:",
+    "daily": {
+      "enabled": true,
+      "time": "09:00",
+      "include": [
+        "debut",
+        "new_entry",
+        "new_release",
+        "climb",
+        "exit"
+      ]
+    },
+    "weekly": {
+      "enabled": true,
+      "day": "monday",
+      "time": "09:00",
+      "include": [
+        "debut",
+        "new_entry",
+        "new_release",
+        "climb",
+        "fall",
+        "exit"
+      ],
+      "show_full_chart": true
+    },
+    "realtime_new_entry": false
+  },
+  "signals": {
+    "move_threshold": 10,
+    "new_release_days": 30,
+    "max_items_per_section": 10
+  },
+  "search_terms": [
+    "puzzle",
+    "jigsaw",
+    "sudoku",
+    "match 3",
+    "block puzzle",
+    "word puzzle",
+    "brain",
+    "escape room",
+    "merge",
+    "tile",
+    "crossword",
+    "logic",
+    "hidden object",
+    "solitaire",
+    "nonogram"
+  ],
+  "web": {
+    "host": "127.0.0.1",
+    "port": 8765
+  }
+}

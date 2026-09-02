@@ -1,0 +1,110 @@
+name: Update charts and publish
+
+on:
+  schedule:
+    # GitHub runs scheduled jobs best-effort, and one of these started eleven
+    # hours late -- posting the daily digest at 8pm. So the morning gets four
+    # attempts on off-the-hour minutes (the top of the hour is the congested
+    # one), and `digest --if-due` decides which of them actually posts: past
+    # 09:00 Europe/Istanbul, once per day. Extra runs only refresh data.
+    - cron: "35 5 * * *"      # 08:35 Istanbul -- refresh only
+    - cron: "20 6 * * *"      # 09:20 -- normally the one that posts
+    - cron: "20 8 * * *"      # 11:20 -- catches a delayed 06:20
+    - cron: "20 11 * * *"     # 14:20 -- last resort
+  workflow_dispatch:
+    inputs:
+      send_digest:
+        description: "Post a Slack digest for this run"
+        type: choice
+        options: ["daily", "weekly", "none"]
+        default: "daily"
+
+# Never let two runs write the database at once.
+concurrency:
+  group: topgames-update
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commit the refreshed database back to the repo
+  pages: write      # publish the dashboard
+  id-token: write   # required by deploy-pages
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      TOPGAMES_SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Refresh chart and new releases
+        run: python -m topgames refresh
+
+      - name: Decide which digest to send
+        id: which
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "period=${{ inputs.send_digest }}" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "1" ]; then
+            echo "period=weekly" >> "$GITHUB_OUTPUT"   # Monday
+          else
+            echo "period=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post Slack digest
+        if: steps.which.outputs.period != 'none'
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python -m topgames digest ${{ steps.which.outputs.period }}
+          else
+            python -m topgames digest ${{ steps.which.outputs.period }} --if-due
+          fi
+
+      - name: Build static site and Slack payloads
+        run: python -m topgames export --outdir site --prune
+
+      # Publishing must not depend on the bookkeeping commit succeeding: a push
+      # race with a human commit used to fail the job before Pages deployed,
+      # taking the whole site update down over a database checkpoint.
+      - name: Commit refreshed database
+        continue-on-error: true
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f data/topgames.db
+          # The database is the only state that survives between runs; without it
+          # every run would look like a first run and detect no movement at all.
+          if git diff --staged --quiet; then
+            echo "No database changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: refresh chart data [skip ci]"
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected; rebasing onto the remote and retrying."
+            git fetch origin main
+            # Ours wins for the database: this run holds the newest snapshot.
+            git -c rebase.autoStash=true rebase -X ours origin/main || {
+              git rebase --abort || true
+              echo "Could not rebase; leaving the checkpoint for the next run."
+              exit 0
+            }
+          done
+          echo "Push still failing after 3 attempts; the next run will retry."
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
