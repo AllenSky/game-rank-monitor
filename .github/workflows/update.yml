@@ -48,11 +48,15 @@ jobs:
         run: npm install
 
       - name: Refresh iOS datasets (blocking)
-        run: python -m topgames refresh --platform ios 2>&1 | tee data/refresh-ios.log
+        run: |
+          set -o pipefail
+          python -m topgames refresh --platform ios 2>&1 | tee data/refresh-ios.log
 
       - name: Refresh Play datasets (best effort)
         continue-on-error: true
-        run: python -m topgames refresh --platform play 2>&1 | tee data/refresh-play.log
+        run: |
+          set -o pipefail
+          python -m topgames refresh --platform play 2>&1 | tee data/refresh-play.log
 
       - name: Decide which digest to send
         id: which
