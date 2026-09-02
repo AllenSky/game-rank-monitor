@@ -191,12 +191,12 @@ DEFAULTS = {
         # and its unauthenticated /api routes as well -- rarely what you want.
         "expose_dashboard": False,
         # Linked from the dashboard's "Send digest" control.
-        "repo_url": "https://github.com/alkanaks56/top-games",
+        "repo_url": "https://github.com/AllenSky/game-rank-monitor",
         # Deployed Cloudflare Worker, e.g. https://topgames-slash.<you>.workers.dev
         # Required for the dashboard's "Share to Slack" button.
-        "worker_url": "https://topgames-slash.akisualkan.workers.dev",
+        "worker_url": "",
         # Public dashboard URL, used for the digest's buttons.
-        "pages_url": "https://alkanaks56.github.io/top-games",
+        "pages_url": "https://allensky.github.io/game-rank-monitor",
     },
 }
 

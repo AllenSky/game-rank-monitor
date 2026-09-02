@@ -22,7 +22,10 @@ class SlackError(RuntimeError):
 def post(webhook_url, payload, timeout=15):
     if not webhook_url:
         raise SlackError(
-            "No Slack webhook configured. Add slack.webhook_url to config.json.")
+            "No webhook configured. Add slack.webhook_url to config.json.")
+    from . import lark
+    if lark.is_lark(webhook_url):
+        return lark.post(webhook_url, payload, timeout)
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         webhook_url, data=body,
