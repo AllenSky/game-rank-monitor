@@ -1,0 +1,5 @@
+  us-ios-casual              100 rows -> site/us/ios/casual
+  us-ios-action              100 rows -> site/us/ios/action
+  us-play-casual               5 rows -> site/us/play/casual
+  us-play-action               5 rows -> site/us/play/action
+  manifest -> site/manifest.json (4 datasets)
