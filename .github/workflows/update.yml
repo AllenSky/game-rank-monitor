@@ -48,11 +48,11 @@ jobs:
         run: npm install
 
       - name: Refresh iOS datasets (blocking)
-        run: python -m topgames refresh --platform ios
+        run: python -m topgames refresh --platform ios 2>&1 | tee data/refresh-ios.log
 
       - name: Refresh Play datasets (best effort)
         continue-on-error: true
-        run: python -m topgames refresh --platform play
+        run: python -m topgames refresh --platform play 2>&1 | tee data/refresh-play.log
 
       - name: Decide which digest to send
         id: which
@@ -75,17 +75,20 @@ jobs:
           fi
 
       - name: Build static site and Slack payloads
-        run: python -m topgames export --outdir site --prune
+        run: |
+          set -o pipefail
+          python -m topgames export --outdir site --prune 2>&1 | tee data/export.log
 
       # Publishing must not depend on the bookkeeping commit succeeding: a push
       # race with a human commit used to fail the job before Pages deployed,
       # taking the whole site update down over a database checkpoint.
       - name: Commit refreshed database
+        if: always()
         continue-on-error: true
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f data/topgames.db
+          git add -f data/topgames.db data/*.log
           # The database is the only state that survives between runs; without it
           # every run would look like a first run and detect no movement at all.
           if git diff --staged --quiet; then

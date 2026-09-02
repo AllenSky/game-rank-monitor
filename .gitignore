@@ -1,6 +1,7 @@
 config.json
 data/*
 !data/topgames.db
+!data/*.log
 site/
 __pycache__/
 *.pyc

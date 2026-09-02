@@ -443,6 +443,8 @@ def cmd_export(args, cfg):
         except Exception as exc:
             failed.append(d["slug"])
             print(f"  {d['slug']:26} FAILED: {exc}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
 
     for country in sorted({d["country"] for d in ds}):
         src = _releases_path(country)
