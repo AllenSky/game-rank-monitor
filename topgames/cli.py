@@ -336,16 +336,16 @@ def cmd_digest(args, cfg):
     if payload is None:
         print(f"Nothing to report and skip_if_empty is on -- no {args.period} digest sent.")
         return 0
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        print(f"\n(dry run -- {len(ids)} signals would be marked as notified)",
+              file=sys.stderr)
+        return 0
     if not (cfg["slack"].get("webhook_url") or "").strip():
         # No Slack configured yet (e.g. first CI validation runs): posting is
         # impossible, and failing here would take the Pages deploy down with it.
         print(f"No slack webhook configured -- {args.period} digest built "
               f"({len(ids)} signals) but not sent.")
-        return 0
-    if args.dry_run:
-        print(json.dumps(payload, indent=2))
-        print(f"\n(dry run -- {len(ids)} signals would be marked as notified)",
-              file=sys.stderr)
         return 0
     try:
         slack.post(cfg["slack"]["webhook_url"], payload)

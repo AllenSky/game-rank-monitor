@@ -11,7 +11,13 @@ busy channel.
 """
 from datetime import datetime, timedelta, timezone
 
-from . import store, viewdata
+from . import companies, config, store, viewdata
+
+PLATFORM_BADGE = {"ios": "🍎", "play": "🤖"}
+
+
+def _badge(e):
+    return PLATFORM_BADGE.get(e.get("platform"), "")
 
 MAX_BLOCKS = 50
 SECTION_LIMIT = 2900          # Slack's ceiling is 3000; leave headroom.
@@ -227,6 +233,44 @@ def release_blocks(rows, in_window, window_days):
     return blocks
 
 
+def watched_blocks(overview, max_titles=6, max_versions=4):
+    """The watched-companies section: charting titles + fresh version bumps."""
+    rows, blocks = [], []
+    for comp in overview:
+        if not comp["any"]:
+            continue
+        badges = []
+        if comp["titles"]:
+            plats = sorted({t["platform"] for t in comp["titles"]})
+            badges.append(f"{len(comp['titles'])} charting (" +
+                          "/".join(PLATFORM_BADGE.get(p, p) for p in plats) + ")")
+        if comp["new_versions"]:
+            badges.append(f"{len(comp['new_versions'])} update"
+                          + ("s" if len(comp["new_versions"]) > 1 else ""))
+        lines = [f"👁 *{comp['name']}* — " + " · ".join(badges)] if badges else []
+        for t in comp["titles"][:max_titles]:
+            move = ""
+            if t["delta"]:
+                arrow = "▲" if t["delta"] > 0 else "▼"
+                move = f" {arrow}{abs(t['delta'])}"
+            freq = t.get("update_frequency") or {}
+            cadence = (f" · {freq['count']}↑/90d"
+                       if freq.get("count") else "")
+            lines.append(f"  {_badge(t)} `#{t['rank']}` <{t['url']}|{t['name']}>"
+                         f" ({t['platform']}·{t['genre']}){move}{cadence}")
+        for v in comp["new_versions"][:max_versions]:
+            day = (v["first_seen"] or "")[:10]
+            lines.append(f"  {_badge(v)} ⬆ <{v['url']}|{v['name']}> "
+                         f"v{v['version']} ({day})")
+        rows += lines
+    if not rows:
+        return []
+    text = "\n".join(rows[:30])
+    blocks.append(_section("*👁 WATCHED COMPANIES*"))
+    blocks.append(_section(text[:SECTION_LIMIT]))
+    return blocks
+
+
 def in_out_blocks(entered, exited, period_label):
     """`In` carries each game's live rank; `out` is a plain comma list."""
     if not entered and not exited:
@@ -236,7 +280,7 @@ def in_out_blocks(entered, exited, period_label):
         rows = sorted(entered, key=lambda e: e.get("rank") or 999)
         blocks.append(_section(
             f"*In* `{len(entered)}`\n" + _quote(
-                f"`#{e['rank']}`  <{e['url']}|{e['name']}>"
+                f"{_badge(e)} `#{e['rank']}`  <{e['url']}|{e['name']}>"
                 f"{_paren(_play_for(e))} — {e['artist']}"
                 for e in rows)))
     if exited:
@@ -341,7 +385,10 @@ def build(conn, cfg, period="daily"):
 
     genre = cfg["genre"].replace("_", " ").title()
     country = cfg["country"].upper()
-    scope = f"{genre} · {country}"
+    tracked = [g.replace("_", " ").title()
+               for g in (cfg.get("genres_tracked") or [cfg["genre"]])]
+    scope_label = " + ".join(dict.fromkeys(tracked)) if len(tracked) > 1 else genre
+    scope = f"{scope_label} · {country}"
     dash = cfg["web"].get("pages_url") or cfg["web"].get("repo_url") or ""
     tz = cfg["slack"].get("timezone", "UTC")
 
@@ -413,6 +460,11 @@ def build(conn, cfg, period="daily"):
     if io:
         blocks += [{"type": "divider"}] + io
 
+    overview = companies.watch_overview(conn, cfg, config.datasets(cfg), since)
+    wb = watched_blocks(overview)
+    if wb:
+        blocks += [{"type": "divider"}] + wb
+
     blocks += [{"type": "divider"},
                _section("*🏆 CURRENT TOP 10*" + ("  ·  _7-day change_" if weekly else "")),
                _two_column(_top10_lines(top10))]
@@ -430,7 +482,7 @@ def build(conn, cfg, period="daily"):
     if act:
         blocks.append(act)
     blocks.append(_context(
-        f"Apple App Store · iTunes RSS + Search API · next run {next_run}"))
+        f"🍎 App Store + 🤖 Google Play · next run {next_run}"))
 
     if len(blocks) > MAX_BLOCKS:
         blocks = blocks[:MAX_BLOCKS - 1] + [_context("_truncated to fit Slack's block limit_")]
