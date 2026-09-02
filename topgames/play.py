@@ -17,8 +17,33 @@ import json
 import os
 import subprocess
 import threading
+from datetime import datetime, timezone
 
 from .sources import SourceError
+
+
+def _iso(value):
+    """Coerce a timestamp-ish field into an ISO string (or "")."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (int, float)):          # unix seconds/millis
+        ts = value / 1000 if value > 1e12 else value
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    return str(value)
+
+
+def _released_iso(text):
+    """Play's `released` is display text ("Aug 1, 2026"); make it ISO when we can."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    for fmt in ("%b %d, %Y", "%B %d, %Y"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc) \
+                .isoformat()
+        except ValueError:
+            continue
+    return text
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HELPER = os.path.join(ROOT, "scripts", "play_fetch.mjs")
@@ -130,10 +155,11 @@ def normalize(raw):
         "genres": raw.get("genre") or "",
         "primary_genre": raw.get("genre") or "",
         "content_rating": raw.get("contentRating") or "",
-        # Play's `released` is display text ("Sep 2, 2026"), not ISO; keep raw.
-        "release_date": raw.get("released") or "",
-        # `updated` is an ISO timestamp -- the Play-side version history date.
-        "version_date": raw.get("updated") or "",
+        # Display text ("Sep 2, 2026") converted to ISO when parseable, so
+        # fresh-release detection works for Play too.
+        "release_date": _released_iso(raw.get("released")),
+        # Unix millis from the lib, coerced to ISO: the version-history date.
+        "version_date": _iso(raw.get("updated")),
         "version": raw.get("version") or "",
         "avg_rating": float(raw.get("score") or 0.0),
         "rating_count": int(raw.get("ratings") or 0),

@@ -52,7 +52,11 @@ async function main() {
       while (cursor < ids.length) {
         const id = ids[cursor++];
         try {
-          out[ids.indexOf(id)] = await gplay.app({ appId: id, country, lang });
+          const a = await gplay.app({ appId: id, country, lang });
+          // The lib returns `updated` as unix milliseconds; the Python side
+          // stores ISO strings, so normalise at this boundary.
+          if (typeof a.updated === "number") a.updated = new Date(a.updated).toISOString();
+          out[ids.indexOf(id)] = a;
         } catch (e) {
           process.stderr.write(`app(${id}) failed: ${e.message}\n`);
         }
