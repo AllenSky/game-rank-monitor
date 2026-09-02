@@ -68,6 +68,8 @@ DEFAULTS = {
     # below defines the datasets. Google Play has no CN storefront.
     "platforms": ["ios", "play"],
     "watch_developers": ["Voodoo", "SayGames", "King", "Loom"],
+    # Which datasets get their own Top-10 section in the digest.
+    "digest_top10_datasets": ["us-ios-casual", "us-play-casual"],
     "play": {
         # Full app() detail (screenshots, description, version, updated) is
         # one request per app; enrich only the chart head to bound the cost.
@@ -105,7 +107,7 @@ DEFAULTS = {
         "mention": "",
         "daily": {
             "enabled": True,
-            "time": "09:00",
+            "time": "09:30",
             "include": ["debut", "new_entry", "new_release", "climb", "exit"],
             # How far back the "new releases" section looks, in days.
             "new_days": 2,
@@ -119,7 +121,7 @@ DEFAULTS = {
         "weekly": {
             "enabled": True,
             "day": "monday",
-            "time": "09:00",
+            "time": "09:30",
             "include": ["debut", "new_entry", "new_release", "climb", "fall", "exit"],
             "new_days": 7,
             "skip_if_empty": False,

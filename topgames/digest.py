@@ -465,11 +465,29 @@ def build(conn, cfg, period="daily"):
     if wb:
         blocks += [{"type": "divider"}] + wb
 
-    blocks += [{"type": "divider"},
-               _section("*🏆 CURRENT TOP 10*" + ("  ·  _7-day change_" if weekly else "")),
-               _two_column(_top10_lines(top10))]
+    # One labelled Top-10 per platform for the primary genre, so the title's
+    # "Casual + Action" scope is not contradicted by an iOS-only chart.
+    top_ds = []
+    for slug in (cfg.get("digest_top10_datasets")
+                 or [f"{cfg['country']}-ios-{cfg['genre']}"]):
+        d = next((x for x in config.datasets(cfg) if x["slug"] == slug), None)
+        if d is None:
+            continue
+        v = viewdata.build(conn, d)
+        if v and v["items"]:
+            top_ds.append((d, v))
+    for d, v in top_ds:
+        badge = _badge(d)
+        plat = d["platform"].upper()
+        genre_u = d["genre"].replace("_", " ").upper()
+        blocks += [{"type": "divider"},
+                   _section(f"*🏆 {badge} {plat} {genre_u} — TOP 10*"
+                            + ("  ·  _7-day change_" if weekly else "")),
+                   _two_column(_top10_lines(v["items"][:10]))]
 
-    mv = mover_blocks(up, down, "7 days" if weekly else "vs yesterday")
+    plat_note = f"{_badge(cfg)} {cfg.get('platform', 'ios').upper()} · " \
+        + ("7 days" if weekly else "vs yesterday")
+    mv = mover_blocks(up, down, plat_note)
     if mv:
         blocks += [{"type": "divider"}] + mv
 

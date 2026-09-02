@@ -7,10 +7,10 @@ on:
     # attempts on off-the-hour minutes (the top of the hour is the congested
     # one), and `digest --if-due` decides which of them actually posts: past
     # 09:00 Europe/Istanbul, once per day. Extra runs only refresh data.
-    - cron: "35 5 * * *"      # 08:35 Istanbul -- refresh only
-    - cron: "20 6 * * *"      # 09:20 -- normally the one that posts
-    - cron: "20 8 * * *"      # 11:20 -- catches a delayed 06:20
-    - cron: "20 11 * * *"     # 14:20 -- last resort
+    - cron: "35 1 * * *"      # 09:35 Beijing -- normally the one that posts
+    - cron: "20 2 * * *"      # 10:20 -- catches a delayed 01:35
+    - cron: "20 4 * * *"      # 12:20 -- catches a badly delayed run
+    - cron: "20 7 * * *"      # 15:20 -- last resort
   workflow_dispatch:
     inputs:
       send_digest:
