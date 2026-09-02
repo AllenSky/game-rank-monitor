@@ -9,11 +9,15 @@
 
 | 能力 | 说明 |
 |---|---|
-| 每日榜单 | 双平台 × {casual, action} × 免费榜（可扩展 paid/grossing） |
+| 每日榜单 | 双平台 × {casual, action} × 免费榜（可扩展 paid/grossing），暂只 us 区 |
 | 项目详情 | 图标、简介（截断存储）、游戏截图、开发公司、评分 |
+| **更新频率** | 每款产品的版本更新历史（iOS: version/currentVersionReleaseDate 免费获得；Play: app() 详情的 version/updated，仅 enrich 榜单前 N） |
 | 排名历史 | 每日快照 diff，进出榜/升降信号，dashboard sparkline |
-| 公司维度 | 按 developer 聚合；支持 watch 名单，日报推送关注公司动态 |
+| 公司维度 | 按 developer 聚合；watch 名单（Voodoo / SayGames / King / Loom），日报推送关注公司动态 |
 | 交付 | GitHub Actions 定时采集（海外 runner 解决 Play 访问）+ GitHub Pages 静态 dashboard + Slack 日报 |
+
+**Watch 名单匹配规则**：developer 与名单项大小写不敏感地全等，或以 `name + 空格` 开头
+（如 "SayGames Ltd" 命中 "SayGames"；避免 "King" 误中 "Kingdom Studio"）。
 
 ## 2. 上游现状盘点（已通读全部 17 个模块）
 
@@ -40,11 +44,13 @@
 新增列 `platform TEXT DEFAULT 'ios'`、`store_id TEXT`（iOS=trackId 字符串，Play=包名）。
 跨平台同一游戏通过已有的 `bundle_id` 列关联（两平台值相同）。
 
-### D2 — 榜单命名空间
-`snapshots` / `events` 各加 `platform` 列（`'ios'`/`'play'`，默认 `'ios'`，ALTER TABLE 平滑迁移）。
+### D2 — 榜单命名空间（修订：单库多数据集）
+上游将非 primary 数据集分散到独立 DB；本改造改为 **全部数据集共用主库**，
+`snapshots` / `events` / `apps` 增加 `platform` 列（`'ios'`/`'play'`，ALTER TABLE 平滑迁移），
+所有快照查询增加 `(platform, chart, genre_id)` 过滤。
+理由：跨平台的公司聚合（M2）与 digest 合并事件需要单库 SQL。
 chart 取值：iOS 沿用 `topfreeapplications`；Play 用 `top_free` / `top_paid` / `grossing`。
-查询一律 `WHERE platform=? AND chart=?`。Play 的 genre 不落 genre_id（Apple 专属），
-以 `datasets` slug（`us-play-casual`）区分，genre 语义由配置层承载。
+Play genre_id 取 Apple id + 2000（action=9001, casual=9003），仅作命名空间数字，无 Apple 语义。
 
 ### D3 — Play 数据源选型
 **主选**：Python 包 [`google-play-scraper`](https://pypi.org/project/google-play-scraper/)（纯 Python，JoMingyu 维护）：
@@ -60,8 +66,15 @@ chart 取值：iOS 沿用 `topfreeapplications`；Play 用 `top_free` / `top_pai
 
 ### D5 — 公司维度
 - 不建独立表，用 SQL 聚合 `GROUP BY artist`（iOS）/ `developer`（Play）
-- 配置 `watch_developers: [...]`，digest 新增 "关注公司" 板块（上榜游戏数/升降）
+- watch_developers: ["Voodoo", "SayGames", "King", "Loom"]（匹配规则见 §1）
+- digest 新增 "关注公司" 板块（上榜游戏数/升降）
 - dashboard 新增 `/companies` 索引页 + 公司详情页（含跨平台同款合并视图，走 bundle_id）
+
+### D6 — 更新频率追踪（新需求）
+- `apps` 新增 `version` 列；新表 `app_versions(app_id, version, released_at, first_seen)`
+- 每次 refresh 对比已知版本，新版本号落一行（iOS 的 version_date 即 currentVersionReleaseDate；Play 即 updated）
+- 派生指标：近 30/90 天更新次数、平均间隔（M2 查询函数 / M3 dashboard 列）
+- 成本控制：Play 详情请求按 `play.detail_top_n`（默认 100）截取榜单头部
 
 ## 4. 工作分解
 
@@ -74,6 +87,8 @@ chart 取值：iOS 沿用 `topfreeapplications`；Play 用 `top_free` / `top_pai
 | 1.4 | config：datasets 增加 platform 维度；PLAY_GENRES 映射；我方目标配置（us + casual/action + 双平台） | `config.py` |
 | 1.5 | signals.refresh 分派双平台；快照对比逻辑平台无关化 | `signals.py` |
 | 1.6 | 清空作者旧 DB；`python -m topgames init` 生成我方 config | `config.json` |
+| 1.7 | app_versions 表 + iOS/Play 版本采集（D6） | `store.py` `signals.py` |
+| 1.8 | workflow 加 `pip install google-play-scraper`（CI 是 Play 唯一可跑环境） | `update.yml` |
 - **验收**：`refresh` 后 DB 中双平台 casual/action 各有 ≥1 个快照；iOS 流程零回归（tests_signals.py 通过）
 
 ### M2 — 公司维度 + 详情补全
