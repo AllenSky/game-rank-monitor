@@ -44,8 +44,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Play scraper
-        run: pip install google-play-scraper
+      - name: Install Play scraper (node helper)
+        run: npm install
 
       - name: Refresh chart and new releases
         run: python -m topgames refresh

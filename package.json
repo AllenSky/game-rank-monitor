@@ -1,0 +1,8 @@
+{
+  "name": "game-rank-monitor-play-fetch",
+  "private": true,
+  "description": "Node helper: Google Play charts + app details (the Python package lacks list())",
+  "dependencies": {
+    "google-play-scraper": "^10.1.3"
+  }
+}

@@ -7,3 +7,4 @@ __pycache__/
 *.log
 worker/node_modules/
 data/*.view.json
+node_modules/

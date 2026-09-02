@@ -1,9 +1,11 @@
 """Google Play data source.
 
 Apple's keyless endpoints have no Play equivalent: Google publishes no top
-charts API, so this module wraps the `google-play-scraper` PyPI package
-(pure Python, unofficial). If the package is missing or Google is
-unreachable, the caller degrades to iOS-only rather than failing the run.
+charts API. The PyPI `google-play-scraper` package only exposes app/search/
+reviews -- the chart `list()` lives in the Node.js package (facundoolano),
+so this module shells out to scripts/play_fetch.mjs, which owns the network
+side. If node, the package, or Google itself is unavailable the caller
+degrades to iOS-only rather than failing the run.
 
 The public shape mirrors `sources` so signals/refresh treats both platforms
 the same way:
@@ -12,32 +14,48 @@ the same way:
 """
 import hashlib
 import json
+import os
+import subprocess
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
 
 from .sources import SourceError
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HELPER = os.path.join(ROOT, "scripts", "play_fetch.mjs")
 PLAY_APP_URL = "https://play.google.com/store/apps/details?id="
 PLAY_DEV_URL = "https://play.google.com/store/apps/dev?id="
 
-try:
-    import google_play_scraper as gplay
-    _GPLAY_IMPORT_ERROR = None
-except Exception as _exc:  # not installed, or its deps broke on this python
-    gplay = None
-    _GPLAY_IMPORT_ERROR = _exc
+_NODE_CACHE = {}
 
-_ENRICH_WORKERS = 8
+
+def _node_bin():
+    """Locate node; cached. Returns None when absent."""
+    if "bin" not in _NODE_CACHE:
+        for candidate in ("node", "/usr/local/bin/node", "/opt/homebrew/bin/node"):
+            try:
+                subprocess.run([candidate, "--version"], capture_output=True,
+                               timeout=10, check=True)
+                _NODE_CACHE["bin"] = candidate
+                break
+            except Exception:
+                continue
+        else:
+            _NODE_CACHE["bin"] = None
+    return _NODE_CACHE["bin"]
 
 
 def available():
-    """True when the scraper package can be imported."""
-    return gplay is not None
+    """True when node + the helper + its node_modules are all in place."""
+    return bool(_node_bin()) and os.path.exists(HELPER) and \
+        os.path.isdir(os.path.join(ROOT, "node_modules", "google-play-scraper"))
 
 
 def unavailable_reason():
-    return f"google-play-scraper unavailable: {_GPLAY_IMPORT_ERROR}"
+    if not _node_bin():
+        return "node not found on PATH"
+    if not os.path.exists(HELPER):
+        return f"helper script missing: {HELPER}"
+    return "node_modules/google-play-scraper missing -- run: npm install"
 
 
 def app_id_for(package):
@@ -53,62 +71,45 @@ def app_id_for(package):
     return int.from_bytes(digest[:8], "big", signed=True)
 
 
-def _retry(fn, tries=3, what=""):
-    last = None
-    for attempt in range(tries):
-        try:
-            return fn()
-        except Exception as exc:
-            last = exc
-            if attempt < tries - 1:
-                time.sleep(1.0 * (attempt + 1))
-    raise SourceError(f"play request failed after {tries} tries: {what} ({last})")
-
-
-def _call_list(category, chart, num, country, lang):
-    """Call gplay.list tolerating num/number signature drift across versions."""
-    import inspect
-    params = inspect.signature(gplay.list).parameters
-    kwargs = dict(category=category, collection=chart, country=country, lang=lang)
-    if "number" in params:
-        kwargs["number"] = num
-    elif "num" in params:
-        kwargs["num"] = num
-    return gplay.list(**kwargs)
-
-
-def _norm_collection(chart):
-    """Map our chart names to the package's Collection enum values."""
-    name = {"top_free": "TOP_FREE", "top_paid": "TOP_PAID",
-            "grossing": "GROSSING"}.get(chart, "TOP_FREE")
-    coll = getattr(gplay, "collection", None) or getattr(gplay, "Collection", None)
-    if coll is not None and hasattr(coll, name):
-        return getattr(coll, name)
-    return name  # newer versions also accept plain strings
+def _fetch(mode, *args, timeout=120):
+    """Run the node helper and parse its JSON stdout."""
+    if not available():
+        raise SourceError(unavailable_reason())
+    cmd = [_node_bin(), HELPER, mode] + [str(a) for a in args]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, cwd=ROOT)
+    except subprocess.TimeoutExpired:
+        raise SourceError(f"play helper timed out after {timeout}s: {mode}")
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip().splitlines()[-1:] or ["(no stderr)"]
+        raise SourceError(f"play helper failed: {tail[0]}")
+    try:
+        return json.loads(proc.stdout)
+    except ValueError:
+        raise SourceError("play helper returned invalid JSON")
 
 
 def fetch_chart(country="us", chart="top_free", category="GAME_CASUAL",
                 limit=100, lang="en"):
     """Return [(rank, app_id)] for a Play top chart, rank starting at 1."""
-    if not available():
-        raise SourceError(unavailable_reason())
-    coll = _norm_collection(chart)
-    results = _retry(lambda: _call_list(category, coll, limit, country, lang),
-                     what=f"list({category}/{chart}/{country})")
+    rows = _fetch("chart", "--category", category, "--collection", chart,
+                  "--num", limit, "--country", country, "--lang", lang)
     out = []
-    for rank, row in enumerate(results[:limit], start=1):
-        package = row.get("appId") or row.get("appIdOrDeveloperPage")
+    for row in rows[:limit]:
+        package = row.get("appId")
         if not package:
             continue
-        out.append((rank, app_id_for(package)))
+        out.append((row["rank"], app_id_for(package)))
     if not out:
-        raise SourceError(f"play chart returned no usable entries: {category}/{chart}/{country}")
+        raise SourceError(
+            f"play chart returned no usable entries: {category}/{chart}/{country}")
     return out
 
 
-def normalize(raw, package=None):
+def normalize(raw):
     """Flatten a google-play-scraper app() result into the stored shape."""
-    package = package or raw.get("appId") or ""
+    package = raw.get("appId") or ""
     if not package:
         return None
     shots = [u for u in (raw.get("screenshots") or []) if isinstance(u, str)][:5]
@@ -141,29 +142,21 @@ def normalize(raw, package=None):
     }
 
 
-def enrich(packages, country="us", lang="en", workers=_ENRICH_WORKERS):
+def enrich(packages, country="us", lang="en", timeout=300):
     """Fetch full app() details for package names. Returns {app_id: record}.
 
-    Failures are per-app: an app that cannot be enriched simply stays absent,
-    and chart metadata (from list()) is still upserted by the caller.
+    Failures are per-app (the helper skips them on stderr); an app that
+    cannot be enriched simply stays absent from the result.
     """
-    if not available():
-        raise SourceError(unavailable_reason())
+    if not packages:
+        return {}
+    raws = _fetch("apps", "--ids", ",".join(packages),
+                  "--country", country, "--lang", lang, timeout=timeout)
     found = {}
-
-    def one(pkg):
-        try:
-            raw = _retry(lambda: gplay.app(pkg, country=country, lang=lang),
-                         tries=2, what=f"app({pkg})")
-            rec = normalize(raw, pkg)
-            return (rec["app_id"], rec) if rec else None
-        except Exception:
-            return None
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for item in pool.map(one, packages):
-            if item:
-                found[item[0]] = item[1]
+    for raw in raws:
+        rec = normalize(raw)
+        if rec:
+            found[rec["app_id"]] = rec
     return found
 
 
@@ -171,36 +164,38 @@ def chart_meta(country="us", chart="top_free", category="GAME_CASUAL",
                limit=100, lang="en"):
     """The list() rows themselves: enough for apps-upsert without app() detail.
 
-    list() returns short metadata (appId/title/developer/icon/score/price),
-    which is upserted for every chart entry; enrich() then layers full detail
-    (screenshots/description/version) onto the chart head only.
+    Short metadata (appId/title/developer/icon/score) is upserted for every
+    chart entry; enrich() then layers full detail (screenshots/description/
+    version) onto the chart head only.
     """
-    if not available():
-        raise SourceError(unavailable_reason())
-    coll = _norm_collection(chart)
-    results = _retry(lambda: _call_list(category, coll, limit, country, lang),
-                     what=f"list({category}/{chart}/{country})")
-    rows = []
-    for rank, raw in enumerate(results[:limit], start=1):
+    rows = _fetch("chart", "--category", category, "--collection", chart,
+                  "--num", limit, "--country", country, "--lang", lang)
+    out = []
+    for rank, raw in enumerate(rows[:limit], start=1):
         package = raw.get("appId") or ""
         if not package:
             continue
-        rec = {
-            "app_id": app_id_for(package), "name": raw.get("title") or "",
-            "artist": raw.get("developer") or "", "url": PLAY_APP_URL + package,
-            "artist_url": "", "bundle_id": package, "store_id": package,
-            "platform": "play", "icon": raw.get("icon") or "",
-            "price": float(raw.get("price") or 0.0),
-            "formatted_price": "Free" if not raw.get("price") else f"{raw.get('price'):g}",
-            "genres": (raw.get("genre") or "").replace(" & ", " ").replace(",", " ").strip(),
-            "primary_genre": "", "content_rating": "", "release_date": "",
-            "version_date": "", "version": "",
+        price = float(raw.get("price") or 0.0)
+        out.append({
+            "app_id": app_id_for(package),
+            "name": raw.get("title") or "",
+            "artist": raw.get("developer") or "",
+            "url": PLAY_APP_URL + package,
+            "artist_url": (PLAY_DEV_URL + str(raw["developerId"])
+                           if raw.get("developerId") else ""),
+            "bundle_id": package, "store_id": package, "platform": "play",
+            "icon": raw.get("icon") or "",
+            "price": price,
+            "formatted_price": "Free" if not price else f"{price:g}",
+            # list() rows carry no genre; enrich() fills it from app().
+            "genres": "", "primary_genre": "", "content_rating": "",
+            "release_date": "", "version_date": "", "version": "",
             "avg_rating": float(raw.get("score") or 0.0),
             "rating_count": int(raw.get("ratings") or 0),
             "description": "", "screenshots": "[]",
             "_package": package, "_rank": rank,
-        }
-        rows.append(rec)
-    if not rows:
-        raise SourceError(f"play chart returned no usable entries: {category}/{chart}/{country}")
-    return rows
+        })
+    if not out:
+        raise SourceError(
+            f"play chart returned no usable entries: {category}/{chart}/{country}")
+    return out
