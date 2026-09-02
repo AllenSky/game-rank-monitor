@@ -50,15 +50,20 @@ def _genre_label(genres):
     return " / ".join(parts[:2]) or "Puzzle"
 
 
-def comparison_snapshot(conn, chart, target_days=7):
+def comparison_snapshot(conn, chart, target_days=7, genre_id=None, platform="ios"):
     """Newest snapshot at least `target_days` old, else the oldest we hold.
 
     Returns (snapshot_row, actual_days_apart). A brand-new database has only
     today's data, so the dashboard labels the delta column with the span it
     could actually measure rather than claiming a 7-day change it cannot see.
     """
+    if genre_id is not None:
+        where, params = "platform=? AND chart=? AND genre_id=?", \
+            [platform or "ios", chart, genre_id]
+    else:
+        where, params = "platform=? AND chart=?", [platform or "ios", chart]
     snaps = conn.execute(
-        "SELECT * FROM snapshots WHERE chart=? ORDER BY id DESC", (chart,)).fetchall()
+        f"SELECT * FROM snapshots WHERE {where} ORDER BY id DESC", params).fetchall()
     if len(snaps) < 2:
         return None, 0
     newest = _parse(snaps[0]["captured_at"])
@@ -75,19 +80,27 @@ def comparison_snapshot(conn, chart, target_days=7):
 def build(conn, cfg):
     """Assemble every figure the page renders."""
     chart = cfg["chart"]
-    snap, rows = store.latest_chart(conn, chart)
+    platform = cfg.get("platform", "ios")
+    genre_id = cfg.get("genre_id")
+    snap, rows = store.latest_chart(conn, chart, genre_id=genre_id, platform=platform)
     if not snap:
         return None
 
-    base, span_days = comparison_snapshot(conn, chart, target_days=7)
+    base, span_days = comparison_snapshot(conn, chart, target_days=7,
+                                          genre_id=genre_id, platform=platform)
     base_ranks = store.snapshot_ranks(conn, base["id"]) if base else {}
 
     # Rank history for the sparkline, covering exactly the period the delta
     # describes. Taking merely the newest N snapshots let the comparison point
     # fall outside the window, so a game could report a rank change while its
     # line sat perfectly flat.
+    if genre_id is not None:
+        hwhere, hparams = "platform=? AND chart=? AND genre_id=?", \
+            (platform, chart, genre_id)
+    else:
+        hwhere, hparams = "platform=? AND chart=?", (platform, chart)
     all_ids = [row["id"] for row in conn.execute(
-        "SELECT id FROM snapshots WHERE chart=? ORDER BY id", (chart,))]
+        f"SELECT id FROM snapshots WHERE {hwhere} ORDER BY id", hparams)]
     start = all_ids.index(base["id"]) if base and base["id"] in all_ids else 0
     window = all_ids[start:]
     if len(window) > HISTORY_POINTS:
@@ -175,9 +188,9 @@ def build(conn, cfg):
     # Unfiltered on purpose: the dashboard offers a genre dropdown over these,
     # defaulting to the tracked genre but able to show everything found.
     fresh_rows = conn.execute("""
-        SELECT * FROM apps WHERE release_date >= ?
+        SELECT * FROM apps WHERE release_date >= ? AND platform=?
         ORDER BY release_date DESC LIMIT 600
-    """, (cutoff,)).fetchall()
+    """, (cutoff, platform)).fetchall()
     new_releases = []
     for r in fresh_rows:
         released = _parse(r["release_date"])

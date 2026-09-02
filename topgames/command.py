@@ -76,12 +76,15 @@ def _reply(blocks, text, in_channel=False):
 
 
 def _chart_reply(conn, cfg, limit, in_channel):
-    snap, rows = store.latest_chart(conn, cfg["chart"])
+    snap, rows = store.latest_chart(conn, cfg["chart"], genre_id=cfg.get("genre_id"),
+                          platform=cfg.get("platform", "ios"))
     if not rows:
         return _reply([_section(
             ":warning: No data stored yet. Run `/top100 refresh` first.")],
             "no data")
-    snaps = store.recent_snapshots(conn, cfg["chart"], limit=2)
+    snaps = store.recent_snapshots(conn, cfg["chart"], limit=2,
+                                genre_id=cfg.get("genre_id"),
+                                platform=cfg.get("platform", "ios"))
     prev = store.snapshot_ranks(conn, snaps[1]["id"]) if len(snaps) > 1 else {}
     rows = rows[:limit]
     lines = []

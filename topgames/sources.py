@@ -148,6 +148,12 @@ def normalize(raw):
     app_id = raw.get("trackId")
     if not app_id:
         return None
+    # Screenshots and description are stored for the app-detail views. The
+    # description was historically dropped ("half the database file"), so it
+    # is truncated instead; screenshots are URLs only, capped at 5.
+    shots = [u for u in (raw.get("screenshotUrls") or [])
+             if isinstance(u, str) and u][:5]
+    description = (raw.get("description") or "")[:1500]
     return {
         "app_id": int(app_id),
         "name": raw.get("trackName") or "(unknown)",
@@ -157,6 +163,8 @@ def normalize(raw):
         # com.company.game -- the closest thing to a cross-store identity, used
         # to look the same title up on Google Play.
         "bundle_id": raw.get("bundleId") or "",
+        "store_id": str(app_id),
+        "platform": "ios",
         "icon": raw.get("artworkUrl100") or "",
         "price": float(raw.get("price") or 0.0),
         "formatted_price": raw.get("formattedPrice") or "",
@@ -167,10 +175,11 @@ def normalize(raw):
         "content_rating": raw.get("contentAdvisoryRating") or "",
         "release_date": raw.get("releaseDate") or "",
         "version_date": raw.get("currentVersionReleaseDate") or "",
+        "version": raw.get("version") or "",
         "avg_rating": float(raw.get("averageUserRating") or 0.0),
         "rating_count": int(raw.get("userRatingCount") or 0),
-        # Not stored: nothing reads it, and it was half the database file.
-        "description": "",
+        "description": description,
+        "screenshots": json.dumps(shots),
     }
 
 

@@ -12,10 +12,13 @@ from .templates import PAGE
 
 def _chart_payload(conn, cfg):
     """Current chart, annotated with movement against the previous snapshot."""
-    snap, rows = store.latest_chart(conn, cfg["chart"])
+    snap, rows = store.latest_chart(conn, cfg["chart"], genre_id=cfg.get("genre_id"),
+                          platform=cfg.get("platform", "ios"))
     if not snap:
         return {"captured_at": None, "rows": []}
-    snaps = store.recent_snapshots(conn, cfg["chart"], limit=2)
+    snaps = store.recent_snapshots(conn, cfg["chart"], limit=2,
+                                genre_id=cfg.get("genre_id"),
+                                platform=cfg.get("platform", "ios"))
     prev = store.snapshot_ranks(conn, snaps[1]["id"]) if len(snaps) > 1 else {}
     cutoff = datetime.now(timezone.utc) - timedelta(days=cfg["signals"]["new_release_days"])
     out = []

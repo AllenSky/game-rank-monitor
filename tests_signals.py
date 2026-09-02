@@ -5,7 +5,7 @@ from topgames import store, slack, config, digest as digest_mod
 
 db = os.path.join(tempfile.mkdtemp(), "t.db")
 conn = store.connect(db)
-cfg = config.load()
+cfg = dict(config.primary(config.load()))   # digest runs against the primary dataset
 cfg["slack"]["webhook_url"] = ""   # never send during tests
 
 def app(i, name, days_old=400):
@@ -17,14 +17,14 @@ def app(i, name, days_old=400):
 
 # --- snapshot 1: apps 1..5 at ranks 1..5
 store.upsert_apps(conn, [app(i, f"Game {i}") for i in range(1, 6)])
-s1 = store.add_snapshot(conn, "topfreeapplications", 7012, "us",
+s1 = store.add_snapshot(conn, cfg["chart"], cfg["genre_id"], "us",
                         [(r, r) for r in range(1, 6)])
 
 # --- snapshot 2: app 3 gone; NEW app 9 (fresh release) enters at #2;
 #     app 5 climbs 5->1 (+4); app 1 falls 1->5 (-4)
 store.upsert_apps(conn, [app(9, "Brand New Game", days_old=3)])
 new_order = [(1, 5), (2, 9), (3, 2), (4, 4), (5, 1)]   # (rank, app_id)
-s2 = store.add_snapshot(conn, "topfreeapplications", 7012, "us", new_order)
+s2 = store.add_snapshot(conn, cfg["chart"], cfg["genre_id"], "us", new_order)
 
 prev = store.snapshot_ranks(conn, s1)
 curr = {aid: r for r, aid in new_order}
@@ -101,8 +101,8 @@ print("PASS: sent events are not resent")
 # --- a quiet day still posts, compressed rather than silent
 conn2 = store.connect(os.path.join(tempfile.mkdtemp(), "e.db"))
 store.upsert_apps(conn2, [app(i, f"Calm {i}") for i in range(1, 4)])
-store.add_snapshot(conn2, "topfreeapplications", 7012, "us", [(r, r) for r in range(1, 4)])
-store.add_snapshot(conn2, "topfreeapplications", 7012, "us", [(r, r) for r in range(1, 4)])
+store.add_snapshot(conn2, cfg["chart"], cfg["genre_id"], "us", [(r, r) for r in range(1, 4)])
+store.add_snapshot(conn2, cfg["chart"], cfg["genre_id"], "us", [(r, r) for r in range(1, 4)])
 p2, i2 = digest_mod.build(conn2, cfg, "daily")
 assert p2 is not None, "silence is indistinguishable from a broken schedule"
 assert "chart unchanged" in json.dumps(p2), json.dumps(p2)[:200]

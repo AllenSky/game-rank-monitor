@@ -39,26 +39,53 @@ GENRE_NAMES = {
     7017: "Strategy", 7018: "Trivia", 7019: "Word",
 }
 
+# Google Play categories for the genres we track. Play has no "shooting"
+# category either -- shooters live under GAME_ACTION, same as Apple's Action.
+PLAY_GENRES = {
+    "games": "GAME", "action": "GAME_ACTION", "adventure": "GAME_ADVENTURE",
+    "arcade": "GAME_ARCADE", "board": "GAME_BOARD", "card": "GAME_CARD",
+    "casino": "GAME_CASINO", "casual": "GAME_CASUAL",
+    "educational": "GAME_EDUCATIONAL", "music": "GAME_MUSIC",
+    "puzzle": "GAME_PUZZLE", "racing": "GAME_RACING",
+    "role_playing": "GAME_ROLE_PLAYING", "simulation": "GAME_SIMULATION",
+    "sports": "GAME_SPORTS", "strategy": "GAME_STRATEGY",
+    "trivia": "GAME_TRIVIA", "word": "GAME_WORD",
+}
+# Play datasets reuse the Apple genre id + 2000 as their numeric namespace.
+PLAY_GENRE_ID_OFFSET = 2000
+# iOS chart name -> Play chart name (collections in google-play-scraper terms).
+PLAY_CHARTS = {
+    "topfreeapplications": "top_free",
+    "toppaidapplications": "top_paid",
+    "topgrossingapplications": "grossing",
+}
+
 
 DEFAULTS = {
     "country": "us",
-    "genre": "puzzle",
+    "genre": "casual",
+    # Platforms tracked; the cross product with countries x genres_tracked
+    # below defines the datasets. Google Play has no CN storefront.
+    "platforms": ["ios", "play"],
+    "watch_developers": ["Voodoo", "SayGames", "King", "Loom"],
+    "play": {
+        # Full app() detail (screenshots, description, version, updated) is
+        # one request per app; enrich only the chart head to bound the cost.
+        "detail_top_n": 100,
+        "lang": "en",
+    },
     # Charts to publish. The primary keeps full history (rank deltas, movers,
     # the Slack digest); the rest are chart-only, fetched fresh each run and
     # stored nowhere, which is why they cost 2 requests instead of 17.
     # Add an entry here and to worker/wrangler.toml's DATASETS to publish more.
     # Charts are the cross product of these. Each costs 2 requests and ~3.4s.
-    "countries": ["us", "gb", "de", "tr", "br"],
+    "countries": ["us"],
     # Every Apple games genre, so the dashboard's genre filter is a real
     # browser rather than a shortlist. Each adds 2 requests per country.
     # Every Apple games genre that actually publishes a chart. Dice (7007) and
     # Educational (7008) are omitted: their feeds return zero entries in every
     # storefront, so they would only ever appear as failures.
-    "genres_tracked": [
-        "games", "action", "adventure", "board", "card", "casino", "casual",
-        "family", "music", "puzzle", "racing", "role_playing", "simulation",
-        "sports", "strategy", "trivia", "word",
-    ],
+    "genres_tracked": ["casual", "action"],
     # Explicit entries override the cross product entirely.
     "datasets": [],
     "chart": "topfreeapplications",
@@ -73,7 +100,7 @@ DEFAULTS = {
         # The zone the digest times below are written in. The GitHub workflow
         # cron is UTC, so it is set to the matching UTC hour; Europe/Istanbul has
         # no DST, which is why a fixed cron stays correct year-round.
-        "timezone": "Europe/Istanbul",
+        "timezone": "Asia/Shanghai",
         # Text prepended to every digest, e.g. "<!here>" or "<!subteam^ID>".
         "mention": "",
         "daily": {
@@ -227,45 +254,51 @@ def save_example(path=None):
 def datasets(cfg):
     """Resolve cfg into one fully-populated config per dataset.
 
-    With no `datasets` list configured this yields a single primary entry built
-    from the top-level country/genre, so an untouched config behaves exactly as
-    it did before multi-dataset support existed.
+    The cross product is platforms x countries x genres_tracked. Every
+    dataset keeps history in the single shared database (platform/chart/
+    genre_id namespaced), which is what cross-platform company views and
+    digests are built on. The `primary` dataset is the first one and feeds
+    the legacy single-dataset code paths (web server, slash command).
     """
     raw = cfg.get("datasets") or []
     if not raw:
         countries = cfg.get("countries") or [cfg["country"]]
         genres_t = cfg.get("genres_tracked") or [cfg["genre"]]
-        raw = [{"country": c, "genre": g,
-                # Only the configured primary keeps history; the rest are
-                # chart-only, which is what makes the cross product affordable.
-                "primary": c == cfg["country"] and g == cfg["genre"],
-                "history": c == cfg["country"] and g == cfg["genre"]}
-               for c in countries for g in genres_t]
+        platforms = cfg.get("platforms") or ["ios"]
+        raw = [{"platform": p, "country": c, "genre": g,
+                "primary": p == platforms[0] and c == cfg["country"]
+                and g == cfg["genre"],
+                "history": True}
+               for p in platforms for c in countries for g in genres_t]
         if not any(d["primary"] for d in raw):
-            raw.insert(0, {"country": cfg["country"], "genre": cfg["genre"],
-                           "primary": True, "history": True})
+            raw[0]["primary"] = True
 
     out, seen_primary = [], False
     for entry in raw:
         country = (entry.get("country") or cfg["country"]).lower()
         genre = (entry.get("genre") or cfg["genre"]).lower()
+        platform = (entry.get("platform") or "ios").lower()
         primary = bool(entry.get("primary")) and not seen_primary
         if primary:
             seen_primary = True
+        apple_id = GENRES.get(genre, GENRES["casual"])
         d = dict(cfg)
         d.update({
+            "platform": platform,
             "country": country,
             "genre": genre,
-            "genre_id": GENRES.get(genre, GENRES["puzzle"]),
-            "chart": entry.get("chart", cfg["chart"]),
+            "genre_id": apple_id + (PLAY_GENRE_ID_OFFSET if platform == "play" else 0),
+            "play_category": PLAY_GENRES.get(genre, "GAME_CASUAL"),
+            "chart": (PLAY_CHARTS.get(entry.get("chart", cfg["chart"]), "top_free")
+                      if platform == "play"
+                      else entry.get("chart", cfg["chart"])),
             "chart_size": int(entry.get("chart_size", cfg["chart_size"])),
-            "slug": f"{country}-{genre}",
-            "outdir_rel": f"{country}/{genre}",
+            "slug": f"{country}-{platform}-{genre}",
+            "outdir_rel": f"{country}/{platform}/{genre}",
             "primary": primary,
-            # Only a dataset with history can show movement or feed a digest.
-            "history": bool(entry.get("history", primary)),
+            "history": bool(entry.get("history", True)),
         })
-        d["db_path"] = (DB_PATH if primary
+        d["db_path"] = (DB_PATH if d["history"]
                         else os.path.join(ROOT, "data", f"{d['slug']}.db"))
         out.append(d)
 

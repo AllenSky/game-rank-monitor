@@ -375,7 +375,8 @@ def cmd_serve(args, cfg):
 def cmd_chart(args, cfg):
     cfg = config.primary(cfg)
     conn = store.connect(cfg["db_path"])
-    snap, rows = store.latest_chart(conn, cfg["chart"])
+    snap, rows = store.latest_chart(conn, cfg["chart"], genre_id=cfg.get("genre_id"),
+                          platform=cfg.get("platform", "ios"))
     if not snap:
         print("No data yet -- run:  python3 -m topgames refresh")
         return 1

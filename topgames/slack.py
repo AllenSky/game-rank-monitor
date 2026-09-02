@@ -154,7 +154,8 @@ def build_digest(conn, cfg, period="daily", since=None):
     event_ids = [e["id"] for e in events]
 
     # Current ranks, so a new release that has already charted can say so.
-    _snap, _rows = store.latest_chart(conn, cfg["chart"])
+    _snap, _rows = store.latest_chart(conn, cfg["chart"], genre_id=cfg.get("genre_id"),
+                          platform=cfg.get("platform", "ios"))
     chart_ranks = {r["app_id"]: r["rank"] for r in _rows}
 
     genre = cfg["genre"].replace("_", " ").title()
@@ -221,7 +222,8 @@ def build_digest(conn, cfg, period="daily", since=None):
 
     top_n = int(slack_cfg.get("show_top_n") or 0)
     if top_n:
-        snap, rows = store.latest_chart(conn, cfg["chart"])
+        snap, rows = store.latest_chart(conn, cfg["chart"], genre_id=cfg.get("genre_id"),
+                          platform=cfg.get("platform", "ios"))
         if rows:
             top = rows[:top_n]
             body = "\n".join(
