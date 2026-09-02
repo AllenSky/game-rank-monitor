@@ -47,8 +47,12 @@ jobs:
       - name: Install Play scraper (node helper)
         run: npm install
 
-      - name: Refresh chart and new releases
-        run: python -m topgames refresh
+      - name: Refresh iOS datasets (blocking)
+        run: python -m topgames refresh --platform ios
+
+      - name: Refresh Play datasets (best effort)
+        continue-on-error: true
+        run: python -m topgames refresh --platform play
 
       - name: Decide which digest to send
         id: which

@@ -183,11 +183,15 @@ def entries_count(view):
 def cmd_refresh(args, cfg):
     """Refresh every configured dataset, isolating failures."""
     ds = config.datasets(cfg)
+    only = getattr(args, "platform", None)
+    if only:
+        ds = [d for d in ds if d["platform"] == only]
     failed = []
     swept = {}
 
     # One release sweep per storefront, shared by that country's charts.
-    if cfg.get("sweep_countries", True):
+    # The sweep is Apple-only, so a play-scoped refresh skips it entirely.
+    if cfg.get("sweep_countries", True) and only in (None, "ios"):
         primary_country = config.primary(cfg)["country"]
         def sweep_one(country):
             try:
@@ -244,6 +248,8 @@ def cmd_refresh(args, cfg):
         if exc is not None:
             failed.append((d["slug"], exc))
             print(f"  {tag:26} FAILED: {exc}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(limit=4)
         else:
             print(f"  {tag:26} {summary['chart_size']:>3} ranked · "
                   f"{summary['new_entries']} new · {summary['movers']} movers · "
@@ -481,7 +487,9 @@ def build_parser():
     p_init = sub.add_parser("init", help="create config.json and the database")
     p_init.add_argument("--force", action="store_true")
 
-    sub.add_parser("refresh", help="pull the chart and new releases, derive signals")
+    p_ref = sub.add_parser("refresh", help="pull the chart and new releases, derive signals")
+    p_ref.add_argument("--platform", choices=["ios", "play"], default=None,
+                       help="refresh only this platform's datasets")
 
     p_serve = sub.add_parser("serve", help="start the web dashboard")
     p_serve.add_argument("--port", default=None)
