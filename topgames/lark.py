@@ -9,8 +9,12 @@ Delivery flow: slack.post() detects a Lark webhook URL and routes here,
 so every existing call site (digest, realtime alert, test message)
 works unchanged.
 """
+import base64
+import hashlib
+import hmac
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -113,9 +117,34 @@ def to_card(payload):
     return {"msg_type": "interactive", "card": card}
 
 
+def sign(secret, timestamp=None):
+    """Lark custom-bot signature.
+
+    The HMAC key is "<timestamp>\n<secret>" and the message is empty --
+    backwards from the usual convention, which is why hand-rolled attempts
+    keep failing with 'sign match fail'.
+    """
+    ts = str(timestamp or int(time.time()))
+    digest = hmac.new(f"{ts}\n{secret}".encode("utf-8"), b"",
+                      hashlib.sha256).digest()
+    return ts, base64.b64encode(digest).decode("utf-8")
+
+
+def _secret():
+    """The bot's signing secret from config (slack.lark_secret)."""
+    from . import config
+    return (config.load()["slack"].get("lark_secret") or "").strip()
+
+
 def post(webhook_url, payload, timeout=15):
     """Send a Block Kit payload to a Lark webhook as an interactive card."""
-    body = json.dumps(to_card(payload)).encode("utf-8")
+    body = to_card(payload)
+    secret = _secret()
+    if secret:
+        ts, sg = sign(secret)
+        body["timestamp"] = ts
+        body["sign"] = sg
+    body = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         webhook_url, data=body,
         headers={"Content-Type": "application/json",
@@ -129,8 +158,9 @@ def post(webhook_url, payload, timeout=15):
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace").strip()
         hint = ""
-        if exc.code == 19021:
-            hint = " -- the webhook key looks wrong or was revoked."
+        if exc.code == 19021 or "sign match fail" in detail:
+            hint = (" -- signature validation failed: check slack.lark_secret "
+                    "in config.json matches the bot's 签名校验 string.")
         raise SlackError(f"Lark rejected the message ({exc.code} {detail}){hint}")
     except urllib.error.URLError as exc:
         raise SlackError(f"Could not reach Lark: {exc.reason}")

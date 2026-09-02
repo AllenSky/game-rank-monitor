@@ -216,6 +216,7 @@ def _merge(base, override):
 ENV_MAP = {
     "TOPGAMES_SLACK_WEBHOOK": ("slack", "webhook_url"),
     "TOPGAMES_SLACK_SIGNING_SECRET": ("slack", "signing_secret"),
+    "TOPGAMES_LARK_SECRET": ("slack", "lark_secret"),
     "TOPGAMES_GENRE": ("genre",),
     "TOPGAMES_COUNTRY": ("country",),
     "TOPGAMES_CHART": ("chart",),

@@ -37,6 +37,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     env:
       TOPGAMES_SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+      TOPGAMES_LARK_SECRET: ${{ secrets.LARK_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
