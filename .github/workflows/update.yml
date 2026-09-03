@@ -8,8 +8,10 @@ on:
     # one), and `digest --if-due` decides which of them actually posts: past
     # 09:00 Europe/Istanbul, once per day. Extra runs only refresh data.
     - cron: "35 1 * * *"      # 09:35 Beijing -- normally the one that posts
-    - cron: "20 2 * * *"      # 10:20 -- catches a delayed 01:35
-    - cron: "20 4 * * *"      # 12:20 -- catches a badly delayed run
+    - cron: "5 2 * * *"       # 10:05
+    - cron: "35 2 * * *"      # 10:35
+    - cron: "5 3 * * *"       # 11:05
+    - cron: "35 3 * * *"      # 11:35
     - cron: "20 7 * * *"      # 15:20 -- last resort
   workflow_dispatch:
     inputs:
