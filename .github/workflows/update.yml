@@ -12,6 +12,7 @@ on:
     - cron: "35 2 * * *"      # 10:35
     - cron: "5 3 * * *"       # 11:05
     - cron: "35 3 * * *"      # 11:35
+    - cron: "20 4 * * *"      # 12:20
     - cron: "20 7 * * *"      # 15:20 -- last resort
   workflow_dispatch:
     inputs:
