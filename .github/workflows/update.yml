@@ -2,12 +2,14 @@ name: Update charts and publish
 
 on:
   schedule:
-    # GitHub runs scheduled jobs best-effort, and one of these started eleven
-    # hours late -- posting the daily digest at 8pm. So the morning gets four
-    # attempts on off-the-hour minutes (the top of the hour is the congested
-    # one), and `digest --if-due` decides which of them actually posts: past
-    # 09:00 Europe/Istanbul, once per day. Extra runs only refresh data.
-    - cron: "35 1 * * *"      # 09:35 Beijing -- normally the one that posts
+    # GitHub runs scheduled jobs best-effort and late: one posted the daily
+    # digest at 8pm, and mornings have fired 4-8h behind for days straight.
+    # The punctual primary trigger is a Cloudflare Worker cron
+    # (worker/wrangler.toml, 09:30 Beijing) that dispatches send_digest=auto;
+    # the crons below stay on as a backup. Whichever run gets there first past
+    # the scheduled hour posts via `digest --if-due` -- exactly one digest per
+    # day, weekly on Mondays. Runs that lose the race only refresh data.
+    - cron: "35 1 * * *"      # 09:35 Beijing -- first backup (Worker is the primary)
     - cron: "5 2 * * *"       # 10:05
     - cron: "35 2 * * *"      # 10:35
     - cron: "5 3 * * *"       # 11:05
@@ -17,10 +19,10 @@ on:
   workflow_dispatch:
     inputs:
       send_digest:
-        description: "Post a Slack digest for this run"
+        description: "auto = Worker/cron default (daily; weekly on Mondays; once per day). daily/weekly force a send now."
         type: choice
-        options: ["daily", "weekly", "none"]
-        default: "daily"
+        options: ["auto", "daily", "weekly", "none"]
+        default: "auto"
 
 # Never let two runs write the database at once.
 concurrency:
@@ -65,18 +67,28 @@ jobs:
       - name: Decide which digest to send
         id: which
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "period=${{ inputs.send_digest }}" >> "$GITHUB_OUTPUT"
-          elif [ "$(date -u +%u)" = "1" ]; then
-            echo "period=weekly" >> "$GITHUB_OUTPUT"   # Monday
+          # auto (Cloudflare Worker + GitHub crons): resolve daily vs weekly
+          # from the day of the week, then let --if-due pick the first run past
+          # the scheduled hour as the day's only digest, so a double trigger
+          # (Worker + backup cron) is a no-op. An explicit daily/weekly/none
+          # chosen in the UI keeps the old force-send behaviour.
+          input="${{ inputs.send_digest }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$input" != "auto" ]; then
+            echo "period=$input" >> "$GITHUB_OUTPUT"
+            echo "force=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "period=daily" >> "$GITHUB_OUTPUT"
+            if [ "$(date -u +%u)" = "1" ]; then
+              echo "period=weekly" >> "$GITHUB_OUTPUT"   # Monday
+            else
+              echo "period=daily" >> "$GITHUB_OUTPUT"
+            fi
+            echo "force=no" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Post Slack digest
         if: steps.which.outputs.period != 'none'
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ steps.which.outputs.force }}" = "yes" ]; then
             python -m topgames digest ${{ steps.which.outputs.period }}
           else
             python -m topgames digest ${{ steps.which.outputs.period }} --if-due

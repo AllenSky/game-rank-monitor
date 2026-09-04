@@ -1,18 +1,20 @@
-name = "topgames-slash"
+name = "topgames-scheduler"
 main = "worker.js"
 compatibility_date = "2026-01-01"
 
-# 06:20 UTC == 09:20 Europe/Istanbul (no DST there, so this stays correct).
+# 01:30 UTC == 09:30 Beijing (UTC+8, no DST). This is the punctual primary
+# trigger; GitHub's own crons in update.yml stay on as a late backup, and
+# `digest --if-due` makes whichever fires first the day's only digest.
 [triggers]
-crons = ["20 6 * * *"]
+crons = ["30 1 * * *"]
 
 [vars]
-GITHUB_REPO = "alkanaks56/top-games"
+GITHUB_REPO = "AllenSky/game-rank-monitor"
 GITHUB_WORKFLOW = "update.yml"
 GITHUB_REF = "main"
 
 # Your GitHub Pages URL, e.g. https://<user>.github.io/<repo>
-PAGES_BASE = "https://alkanaks56.github.io/top-games"
+PAGES_BASE = "https://allensky.github.io/game-rank-monitor"
 
 # Reachable charts, primary first. Only these can be requested; the fetch URL is
 # built from the matched entry, never from user input.

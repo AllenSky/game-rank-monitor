@@ -308,10 +308,12 @@ async function dispatchRefresh(env) {
       "User-Agent": "topgames-scheduler",
       "Content-Type": "application/json",
     },
-    // "daily" here is the intent; the job still refuses to post twice a day,
-    // and swaps in the weekly digest on Mondays.
+    // "auto" here is the intent: the workflow resolves daily vs weekly from
+    // the day of the week and runs `digest --if-due`, so whichever trigger
+    // (this Worker, a GitHub cron, or a manual UI run) gets there first past
+    // the scheduled hour posts -- exactly one digest per day.
     body: JSON.stringify({ ref: env.GITHUB_REF || "main",
-                           inputs: { send_digest: "daily" } }),
+                           inputs: { send_digest: "auto" } }),
   });
   // GitHub answers a permissions problem with 403 and a body that names it;
   // the status alone cannot tell a bad token from a missing scope.
